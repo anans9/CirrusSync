@@ -1,0 +1,250 @@
+version: '3.8'
+
+services:
+  # Main CirrusSync Application
+  app:
+    build:
+      context: .
+      target: production
+    container_name: cirrussync-app
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    environment:
+      - NODE_ENV=production
+      - VITE_API_URL=http://localhost:8080/api
+      - VITE_STRIPE_PUBLISHABLE_KEY=${STRIPE_PUBLISHABLE_KEY}
+    depends_on:
+      - db
+      - redis
+      - api
+    networks:
+      - cirrussync-network
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Backend API Service (if deployed separately)
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: cirrussync-api
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - RUST_LOG=info
+      - DATABASE_URL=postgresql://cirrussync:${DB_PASSWORD}@db:5432/cirrussync
+      - REDIS_URL=redis://redis:6379
+      - JWT_SECRET=${JWT_SECRET}
+      - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY}
+      - CORS_ORIGIN=http://localhost:3000
+    depends_on:
+      - db
+      - redis
+    networks:
+      - cirrussync-network
+    volumes:
+      - ./uploads:/app/uploads
+      - ./logs:/app/logs
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # PostgreSQL Database
+  db:
+    image: postgres:15-alpine
+    container_name: cirrussync-db
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=cirrussync
+      - POSTGRES_USER=cirrussync
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+      - POSTGRES_INITDB_ARGS=--encoding=UTF-8 --lc-collate=C --lc-ctype=C
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks:
+      - cirrussync-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cirrussync -d cirrussync"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: cirrussync-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+      - ./redis.conf:/usr/local/etc/redis/redis.conf:ro
+    networks:
+      - cirrussync-network
+    command: redis-server /usr/local/etc/redis/redis.conf
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Nginx Reverse Proxy
+  nginx:
+    image: nginx:alpine
+    container_name: cirrussync-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./ssl:/etc/nginx/ssl:ro
+      - ./logs/nginx:/var/log/nginx
+    depends_on:
+      - app
+      - api
+    networks:
+      - cirrussync-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Development service (for local development)
+  dev:
+    build:
+      context: .
+      target: development
+    container_name: cirrussync-dev
+    ports:
+      - "1420:1420"
+      - "1421:1421" # Tauri dev server
+    environment:
+      - NODE_ENV=development
+      - VITE_API_URL=http://localhost:8080/api
+      - VITE_STRIPE_PUBLISHABLE_KEY=${STRIPE_PUBLISHABLE_KEY}
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - /app/src-tauri/target
+    networks:
+      - cirrussync-network
+    depends_on:
+      - db
+      - redis
+    profiles:
+      - dev
+
+  # Database administration (optional)
+  adminer:
+    image: adminer:latest
+    container_name: cirrussync-adminer
+    restart: unless-stopped
+    ports:
+      - "8081:8080"
+    environment:
+      - ADMINER_DEFAULT_SERVER=db
+      - ADMINER_DESIGN=nette
+    depends_on:
+      - db
+    networks:
+      - cirrussync-network
+    profiles:
+      - admin
+
+  # Redis GUI (optional)
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: cirrussync-redis-gui
+    restart: unless-stopped
+    ports:
+      - "8082:8081"
+    environment:
+      - REDIS_HOSTS=local:redis:6379
+      - HTTP_USER=${REDIS_GUI_USER:-admin}
+      - HTTP_PASSWORD=${REDIS_GUI_PASSWORD}
+    depends_on:
+      - redis
+    networks:
+      - cirrussync-network
+    profiles:
+      - admin
+
+  # File storage service (MinIO for S3-compatible storage)
+  minio:
+    image: minio/minio:latest
+    container_name: cirrussync-minio
+    restart: unless-stopped
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}
+      - MINIO_BROWSER_REDIRECT_URL=http://localhost:9001
+    volumes:
+      - minio_data:/data
+    networks:
+      - cirrussync-network
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    profiles:
+      - storage
+
+  # Backup service
+  backup:
+    image: postgres:15-alpine
+    container_name: cirrussync-backup
+    restart: "no"
+    environment:
+      - PGPASSWORD=${DB_PASSWORD}
+    volumes:
+      - ./backups:/backups
+      - postgres_data:/var/lib/postgresql/data:ro
+    networks:
+      - cirrussync-network
+    depends_on:
+      - db
+    command: >
+      sh -c "
+        pg_dump -h db -U cirrussync -d cirrussync > /backups/backup_$$(date +%Y%m%d_%H%M%S).sql &&
+        find /backups -name '*.sql' -mtime +7 -delete
+      "
+    profiles:
+      - backup
+
+# Volumes
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  minio_data:
+    driver: local
+
+# Networks
+networks:
+  cirrussync-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16

@@ -1,0 +1,332 @@
+version: '3.8'
+
+services:
+  # Development CirrusSync Application
+  app-dev:
+    build:
+      context: .
+      target: development
+      dockerfile: Dockerfile
+    container_name: cirrussync-app-dev
+    restart: unless-stopped
+    ports:
+      - "1420:1420"  # Vite dev server
+      - "1421:1421"  # Tauri dev server
+    environment:
+      - NODE_ENV=development
+      - VITE_API_URL=http://localhost:8080/api
+      - VITE_STRIPE_PUBLISHABLE_KEY=${STRIPE_PUBLISHABLE_KEY}
+      - DEBUG=true
+      - HOT_RELOAD=true
+      - RUST_LOG=debug
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - /app/src-tauri/target
+      - cirrussync-cargo-cache:/usr/local/cargo/registry
+    networks:
+      - cirrussync-dev-network
+    depends_on:
+      - db-dev
+      - redis-dev
+    stdin_open: true
+    tty: true
+    command: npm run dev
+
+  # Development Backend API (if separate)
+  api-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+      target: development
+    container_name: cirrussync-api-dev
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+      - "9229:9229"  # Node.js debugger port
+    environment:
+      - NODE_ENV=development
+      - RUST_LOG=debug
+      - DATABASE_URL=postgresql://cirrussync:devpassword@db-dev:5432/cirrussync_dev
+      - REDIS_URL=redis://redis-dev:6379
+      - JWT_SECRET=dev-jwt-secret-key
+      - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY}
+      - ENCRYPTION_KEY=dev-encryption-key-32-bytes-base64
+      - CORS_ORIGIN=http://localhost:1420,http://localhost:3000
+      - DEBUG=true
+    volumes:
+      - ./src-tauri:/app/src-tauri
+      - ./api:/app/api
+      - ./uploads:/app/uploads
+      - ./logs:/app/logs
+      - cirrussync-cargo-cache:/usr/local/cargo/registry
+    networks:
+      - cirrussync-dev-network
+    depends_on:
+      - db-dev
+      - redis-dev
+    stdin_open: true
+    tty: true
+
+  # Development PostgreSQL Database
+  db-dev:
+    image: postgres:15-alpine
+    container_name: cirrussync-db-dev
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=cirrussync_dev
+      - POSTGRES_USER=cirrussync
+      - POSTGRES_PASSWORD=devpassword
+      - POSTGRES_INITDB_ARGS=--encoding=UTF-8 --lc-collate=C --lc-ctype=C
+    ports:
+      - "5433:5432"  # Different port to avoid conflicts
+    volumes:
+      - postgres_dev_data:/var/lib/postgresql/data
+      - ./database/init-dev.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ./database/seed-dev.sql:/docker-entrypoint-initdb.d/seed.sql:ro
+    networks:
+      - cirrussync-dev-network
+    command: >
+      postgres -c log_statement=all
+               -c log_destination=stderr
+               -c log_min_error_statement=error
+               -c log_min_messages=warning
+               -c log_min_duration_statement=1000
+
+  # Development Redis Cache
+  redis-dev:
+    image: redis:7-alpine
+    container_name: cirrussync-redis-dev
+    restart: unless-stopped
+    ports:
+      - "6380:6379"  # Different port to avoid conflicts
+    volumes:
+      - redis_dev_data:/data
+      - ./redis-dev.conf:/usr/local/etc/redis/redis.conf:ro
+    networks:
+      - cirrussync-dev-network
+    command: redis-server /usr/local/etc/redis/redis.conf --loglevel verbose
+
+  # Database Administration Tool
+  adminer-dev:
+    image: adminer:latest
+    container_name: cirrussync-adminer-dev
+    restart: unless-stopped
+    ports:
+      - "8081:8080"
+    environment:
+      - ADMINER_DEFAULT_SERVER=db-dev
+      - ADMINER_DESIGN=nette
+      - ADMINER_PLUGINS=tables-filter tinymce
+    depends_on:
+      - db-dev
+    networks:
+      - cirrussync-dev-network
+
+  # Redis GUI
+  redis-commander-dev:
+    image: rediscommander/redis-commander:latest
+    container_name: cirrussync-redis-gui-dev
+    restart: unless-stopped
+    ports:
+      - "8082:8081"
+    environment:
+      - REDIS_HOSTS=local:redis-dev:6379
+      - HTTP_USER=admin
+      - HTTP_PASSWORD=devpassword
+    depends_on:
+      - redis-dev
+    networks:
+      - cirrussync-dev-network
+
+  # MinIO for S3-compatible storage (development)
+  minio-dev:
+    image: minio/minio:latest
+    container_name: cirrussync-minio-dev
+    restart: unless-stopped
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      - MINIO_ROOT_USER=minioadmin
+      - MINIO_ROOT_PASSWORD=minioadmin123
+      - MINIO_BROWSER_REDIRECT_URL=http://localhost:9001
+    volumes:
+      - minio_dev_data:/data
+    networks:
+      - cirrussync-dev-network
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # MinIO client for bucket creation
+  minio-client:
+    image: minio/mc:latest
+    container_name: cirrussync-minio-client
+    depends_on:
+      - minio-dev
+    networks:
+      - cirrussync-dev-network
+    entrypoint: >
+      /bin/sh -c "
+      sleep 5;
+      /usr/bin/mc alias set minio http://minio-dev:9000 minioadmin minioadmin123;
+      /usr/bin/mc mb minio/cirrussync-files --ignore-existing;
+      /usr/bin/mc mb minio/cirrussync-backups --ignore-existing;
+      /usr/bin/mc anonymous set public minio/cirrussync-files;
+      exit 0;
+      "
+
+  # Mailhog for email testing
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: cirrussync-mailhog
+    restart: unless-stopped
+    ports:
+      - "1025:1025"  # SMTP port
+      - "8025:8025"  # Web UI port
+    networks:
+      - cirrussync-dev-network
+
+  # Nginx for development (optional, for testing production-like setup)
+  nginx-dev:
+    image: nginx:alpine
+    container_name: cirrussync-nginx-dev
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    volumes:
+      - ./nginx/nginx-dev.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./logs/nginx:/var/log/nginx
+    depends_on:
+      - app-dev
+      - api-dev
+    networks:
+      - cirrussync-dev-network
+    profiles:
+      - nginx
+
+  # Development tools container
+  tools:
+    image: node:18-alpine
+    container_name: cirrussync-tools
+    restart: "no"
+    volumes:
+      - .:/app
+      - /app/node_modules
+    working_dir: /app
+    networks:
+      - cirrussync-dev-network
+    profiles:
+      - tools
+    command: tail -f /dev/null
+
+  # Code quality and linting
+  linter:
+    build:
+      context: .
+      dockerfile: Dockerfile.tools
+    container_name: cirrussync-linter
+    restart: "no"
+    volumes:
+      - .:/app
+      - /app/node_modules
+    working_dir: /app
+    networks:
+      - cirrussync-dev-network
+    profiles:
+      - tools
+    command: >
+      sh -c "
+        echo 'Running ESLint...' &&
+        npm run lint &&
+        echo 'Running Prettier...' &&
+        npm run format:check &&
+        echo 'Running TypeScript checks...' &&
+        npm run type-check &&
+        echo 'Running Rust checks...' &&
+        cd src-tauri &&
+        cargo fmt --check &&
+        cargo clippy -- -D warnings
+      "
+
+  # Testing container
+  test:
+    build:
+      context: .
+      target: development
+    container_name: cirrussync-test
+    restart: "no"
+    environment:
+      - NODE_ENV=test
+      - DATABASE_URL=postgresql://cirrussync:devpassword@db-dev:5432/cirrussync_test
+      - REDIS_URL=redis://redis-dev:6379/1
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - /app/src-tauri/target
+    networks:
+      - cirrussync-dev-network
+    depends_on:
+      - db-dev
+      - redis-dev
+    profiles:
+      - test
+    command: >
+      sh -c "
+        echo 'Setting up test database...' &&
+        npm run db:setup:test &&
+        echo 'Running frontend tests...' &&
+        npm run test &&
+        echo 'Running backend tests...' &&
+        cd src-tauri &&
+        cargo test
+      "
+
+  # Documentation server
+  docs:
+    image: node:18-alpine
+    container_name: cirrussync-docs
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    volumes:
+      - ./docs:/app
+      - /app/node_modules
+    working_dir: /app
+    networks:
+      - cirrussync-dev-network
+    profiles:
+      - docs
+    command: >
+      sh -c "
+        if [ ! -f package.json ]; then
+          npm init -y &&
+          npm install -g @docsify/cli &&
+          docsify init .
+        fi &&
+        docsify serve . --port 3000
+      "
+
+# Volumes
+volumes:
+  postgres_dev_data:
+    driver: local
+  redis_dev_data:
+    driver: local
+  minio_dev_data:
+    driver: local
+  cirrussync-cargo-cache:
+    driver: local
+
+# Networks
+networks:
+  cirrussync-dev-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.21.0.0/16

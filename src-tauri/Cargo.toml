@@ -1,0 +1,45 @@
+[package]
+name = "CirrusSync"
+version = "0.1.0"
+description = "A secure cloud storage with end-to-end encryption"
+authors = ["CirrusSync"]
+edition = "2024"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+# The `_lib` suffix may seem redundant but it is necessary
+# to make the lib name unique and wouldn't conflict with the bin name.
+# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+name = "cirrussync_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "*", features = [] }
+
+[dependencies]
+tauri = { version = "*", features = [] }
+tauri-plugin-opener = "*"
+serde = { version = "*", features = ["derive"] }
+serde_json = "*"
+tauri-plugin-store = "*"
+rand = { version = "*" }
+reqwest = { version = "*", features = ["json"] }
+tokio = { version = "*", features = ["full"] }
+sha2 = { version = "*" }
+tauri-plugin-dialog = "*"
+base64 = { version = "*" }
+aes-gcm = { version = "*" }
+sysinfo = "*"
+lazy_static = "*"
+xattr = "*"
+tauri-plugin-fs = "*"
+bip39 = "*"
+hex = "*"
+rust-argon2 = "*"
+chrono = "*"
+mime_guess = "2.0.4"
+image = { version = "0.24.6", features = ["jpeg", "png", "gif"] }
+
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-window-state = "2"

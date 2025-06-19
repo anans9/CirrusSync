@@ -1,0 +1,116 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "CirrusSync",
+  "version": "0.1.0",
+  "identifier": "com.cirrussync.app",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "CirrusSync",
+        "width": 500,
+        "height": 600,
+        "hiddenTitle": true,
+        "titleBarStyle": "Overlay",
+        "devtools": true,
+        "transparent": false,
+        "shadow": true,
+        "center": true,
+        "dragDropEnabled": true,
+        "label": "main",
+        "url": "index.html",
+        "visible": false
+      }
+    ],
+    "enableGTKAppId": true,
+    "macOSPrivateApi": false,
+    "security": {
+      "csp": {
+        "default-src": "'self'",
+        "img-src": "'self' data: https://q.stripe.com",
+        "connect-src": "'self' https://api.stripe.com https://js.stripe.com",
+        "script-src": "'self' https://js.stripe.com 'unsafe-inline'",
+        "style-src": "'self' 'unsafe-inline'",
+        "font-src": "'self' data:",
+        "media-src": "'self'",
+        "object-src": "'none'",
+        "frame-src": "'self' https://js.stripe.com",
+        "worker-src": "'self' blob:",
+        "form-action": "'self'",
+        "base-uri": "'self'",
+        "frame-ancestors": "'self'"
+      },
+      "headers": {
+        "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Requested-With",
+        "Access-Control-Allow-Credentials": "true",
+        "Access-Control-Expose-Headers": "X-Request-ID, X-Process-Time",
+        "Access-Control-Max-Age": "600",
+        "Cross-Origin-Opener-Policy": "same-origin",
+        "Cross-Origin-Embedder-Policy": "require-corp",
+        "Cross-Origin-Resource-Policy": "cross-origin",
+        "X-Content-Type-Options": "nosniff",
+        "Permissions-Policy": "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()",
+        "Timing-Allow-Origin": "'self'"
+      },
+      "capabilities": [
+        {
+          "$schema": "../gen/schemas/desktop-schema.json",
+          "identifier": "main-capability",
+          "description": "Capability for the main window",
+          "windows": ["main"],
+          "permissions": [
+            "core:window:default",
+            "window-state:default",
+            "core:window:allow-set-title",
+            "core:window:allow-start-dragging",
+            "dialog:allow-save",
+            "dialog:allow-open",
+            "core:default",
+            "dialog:default",
+            "core:app:allow-set-app-theme",
+            "store:default",
+            {
+              "identifier": "opener:allow-open-url",
+              "allow": [
+                {
+                  "url": "https://cirrussync.me/*"
+                },
+                {
+                  "url": "https://*.cirrussync.me/*"
+                },
+                {
+                  "url": "https://invoice.stripe.com/*"
+                },
+                {
+                  "url": "https://pay.stripe.com/*"
+                }
+              ]
+            },
+            "fs:default",
+            {
+              "identifier": "fs:allow-app-write",
+              "allow": [{ "path": "$APPDATA/*" }]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/icon.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  }
+}
