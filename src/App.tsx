@@ -11,7 +11,6 @@ import SessionListener from "./context/SessionListener";
 import { DriveCacheProvider } from "./context/DriveManager";
 import { ErrorBoundary } from "react-error-boundary";
 import { LoadingIndicator } from "./components/LoadingIndicator";
-import SharedFilesPage from "./pages/SharedFilesPage";
 import { loadStripe } from "@stripe/stripe-js";
 import { Elements } from "@stripe/react-stripe-js";
 import EmailVerificationPage from "./pages/EmailVerificationPage";
@@ -110,11 +109,11 @@ const App = () => {
                             element={<DrivePage />}
                           />
                           <Route path="u/:shareId" element={<DrivePage />} />
-                          <Route path="/shared" element={<SharedFilesPage />} />
+                          {/* <Route path="/shared" element={<SharedFilesPage />} />
                           <Route
                             path="/shared-with-me"
                             element={<SharedFilesPage />}
-                          />
+                          /> */}
 
                           {/* Other dashboard routes */}
                           <Route path="trash" element={<TrashPage />} />
