@@ -401,7 +401,6 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ---
 
 <div align="center">
-  <p>Made with ❤️ in FL, USA</p>
   <p>
     <a href="https://cirrussync.me">Website</a> •
     <a href="https://docs.cirrussync.me">Documentation</a> •
